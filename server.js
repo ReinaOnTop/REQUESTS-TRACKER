@@ -1,30 +1,28 @@
-// Serve static files from "public"
-app.use(express.static('public'));
+const express = require("express");
+const http = require("http");
+const socketIo = require("socket.io");
 
-// Only count requests for non-dashboard routes
-app.all('/api/*', (req, res) => {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
-  const path = req.path;
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
 
-  // update totals
-  stats.totalRequests += 1;
-  stats.byIp[ip] = stats.byIp[ip] || { count: 0, lastSeen: null };
-  stats.byIp[ip].count += 1;
-  stats.byIp[ip].lastSeen = Date.now();
+let requestCount = 0;
 
-  stats.byPath[path] = (stats.byPath[path] || 0) + 1;
+app.use(express.static("public"));
 
-  const now = Date.now();
-  stats.recent.push(now);
-  while (stats.recent.length && stats.recent[0] < now - WINDOW_MS) stats.recent.shift();
+// Count requests
+app.use((req, res, next) => {
+  requestCount++;
+  io.emit("updateCount", requestCount);
+  next();
+});
 
-  io.emit('stats', {
-    totalRequests: stats.totalRequests,
-    topIps: getTopIps(10),
-    topPaths: getTopPaths(10),
-    rps: calcRPS(),
-    recentWindowMs: WINDOW_MS
-  });
+// Show count on root
+app.get("/count", (req, res) => {
+  res.send(`Total Requests: ${requestCount}`);
+});
 
-  res.status(200).send('OK');
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
