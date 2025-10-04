@@ -6,16 +6,18 @@ const PORT = process.env.PORT || 3000;
 let statusCounts = {};
 let history = [];
 
-// Middleware to track requests
+// Middleware to track requests and response status
 app.use((req, res, next) => {
   const now = new Date();
-  const status = 200; // default for demo; replace with real if you add response codes
-  statusCounts[status] = (statusCounts[status] || 0) + 1;
 
-  history.push({ time: now, status });
+  res.on("finish", () => {
+    const status = res.statusCode; // actual status
+    statusCounts[status] = (statusCounts[status] || 0) + 1;
 
-  // keep only last 50 entries
-  if (history.length > 50) history.shift();
+    history.push({ time: now, method: req.method, url: req.url, status });
+
+    if (history.length > 50) history.shift();
+  });
 
   next();
 });
