@@ -2,28 +2,60 @@ const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
 
-const app = express(); // <-- app must be defined first
+const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-let requestCount = 0;
+let totalRequests = 0;
+let requestHistory = [];
+let ipCounts = {};
+let pathCounts = {};
+const recentWindowMs = 60000; // 60 seconds
 
-// serve static files from "public"
 app.use(express.static("public"));
 
-// request counter middleware
 app.use((req, res, next) => {
-  requestCount++;
-  io.emit("updateCount", requestCount);
+  totalRequests++;
+
+  // Track IP
+  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown";
+  ipCounts[ip] = (ipCounts[ip] || 0) + 1;
+
+  // Track path
+  const path = req.path;
+  pathCounts[path] = (pathCounts[path] || 0) + 1;
+
+  // Track request timestamps for RPS
+  const now = Date.now();
+  requestHistory.push(now);
+  requestHistory = requestHistory.filter(t => now - t < recentWindowMs);
+
+  // Compute RPS
+  const rps = requestHistory.length / (recentWindowMs / 1000);
+
+  // Prepare stats
+  const stats = {
+    totalRequests,
+    rps,
+    recentWindowMs,
+    topIps: Object.entries(ipCounts)
+      .map(([ip, count]) => ({ ip, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5),
+    topPaths: Object.entries(pathCounts)
+      .map(([path, count]) => ({ path, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5),
+  };
+
+  io.emit("stats", stats);
   next();
 });
 
-// simple endpoint
 app.get("/count", (req, res) => {
-  res.send(`Total Requests: ${requestCount}`);
+  res.json({ totalRequests });
 });
 
-// use Railway's provided PORT or default 3000
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
