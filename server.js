@@ -1,62 +1,34 @@
 const express = require("express");
-const http = require("http");
-const socketIo = require("socket.io");
-
 const app = express();
-const server = http.createServer(app);
-const io = socketIo(server);
+const path = require("path");
 
-let totalRequests = 0;
-let requestHistory = [];
-let ipCounts = {};
-let pathCounts = {};
-const recentWindowMs = 60000; // 60 seconds
+let requestCounts = {
+  200: 0,
+  304: 0,
+  404: 0,
+  206: 0
+};
+let history = []; // store history for charting
 
-app.use(express.static("public"));
+// Serve static files
+app.use(express.static(path.join(__dirname, "public")));
 
+// Count requests
 app.use((req, res, next) => {
-  totalRequests++;
-
-  // Track IP
-  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown";
-  ipCounts[ip] = (ipCounts[ip] || 0) + 1;
-
-  // Track path
-  const path = req.path;
-  pathCounts[path] = (pathCounts[path] || 0) + 1;
-
-  // Track request timestamps for RPS
-  const now = Date.now();
-  requestHistory.push(now);
-  requestHistory = requestHistory.filter(t => now - t < recentWindowMs);
-
-  // Compute RPS
-  const rps = requestHistory.length / (recentWindowMs / 1000);
-
-  // Prepare stats
-  const stats = {
-    totalRequests,
-    rps,
-    recentWindowMs,
-    topIps: Object.entries(ipCounts)
-      .map(([ip, count]) => ({ ip, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5),
-    topPaths: Object.entries(pathCounts)
-      .map(([path, count]) => ({ path, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5),
-  };
-
-  io.emit("stats", stats);
+  requestCounts[200] = (requestCounts[200] || 0) + 1;
+  history.push({ time: Date.now(), status: 200 });
+  if (history.length > 50) history.shift(); // keep last 50 points
   next();
 });
 
-app.get("/count", (req, res) => {
-  res.json({ totalRequests });
+// Example routes
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+app.get("/stats", (req, res) => {
+  res.json({ requestCounts, history });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
